@@ -1,0 +1,326 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum NovelStatus {
+  IDEA
+  OUTLINING
+  PLANNING_CHAPTERS
+  WRITING
+  REVISING
+  COMPLETED
+  ARCHIVED
+}
+
+enum OutlineStatus {
+  DRAFT
+  PENDING_CONFIRM
+  CONFIRMED
+  NEED_REVISION
+  DEPRECATED
+}
+
+enum ChapterOutlineStatus {
+  NOT_STARTED
+  GENERATED
+  PENDING_CONFIRM
+  CONFIRMED
+  NEED_REVISION
+}
+
+enum ChapterContentStatus {
+  NOT_STARTED
+  DRAFT
+  PENDING_REVIEW
+  NEED_REVISION
+  POLISHED
+  FINALIZED
+  EXPORTED
+}
+
+enum AiTaskStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELED
+}
+
+enum PublicationStatus {
+  PENDING
+  RUNNING
+  NEEDS_LOGIN
+  FAILED
+  PUBLISHED
+  CANCELED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  novels       Novel[]
+}
+
+model Novel {
+  id                    String      @id @default(cuid())
+  userId                String
+  title                 String
+  type                  String
+  subtype               String?
+  tags                  String[]    @default([])
+  status                NovelStatus @default(IDEA)
+  summary               String?
+  sellingPoint          String?
+  targetChapters        Int?
+  targetWordsPerChapter Int?
+  targetTotalWords      Int?
+  currentWords          Int         @default(0)
+  stylePreference       String?
+  forbiddenRules        String?
+  mainGoal              String?
+  finalGoal             String?
+  fanqieWorkspaceUrl    String?
+  fanqiePublishUrl      String?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  user          User            @relation(fields: [userId], references: [id])
+  settings      NovelSetting[]
+  volumes       Volume[]
+  chapters      Chapter[]
+  characters    Character[]
+  worldSettings WorldSetting[]
+  foreshadows   Foreshadow[]
+  timeline      TimelineEvent[]
+  forbiddenTerms ForbiddenTerm[]
+  aiTasks       AiTask[]
+  versions      Version[]
+  publicationJobs PublicationJob[]
+}
+
+model NovelSetting {
+  id        String   @id @default(cuid())
+  novelId   String
+  type      String
+  title     String
+  content   String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+}
+
+model Volume {
+  id                    String        @id @default(cuid())
+  novelId               String
+  title                 String
+  summary               String?
+  startChapterNumber    Int
+  endChapterNumber      Int
+  mainGoal              String?
+  mainConflict          String?
+  mainEnemy             String?
+  keyCharacters         String?
+  keySettings           String?
+  foreshadowsToCreate   String?
+  foreshadowsToResolve  String?
+  climax                String?
+  status                OutlineStatus @default(DRAFT)
+  sortOrder             Int           @default(0)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  novel    Novel     @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  chapters Chapter[]
+}
+
+model Chapter {
+  id              String               @id @default(cuid())
+  novelId          String
+  volumeId         String?
+  chapterNumber    Int
+  title            String
+  outline          String?
+  content          String?
+  summary          String?
+  wordCount        Int                  @default(0)
+  outlineStatus    ChapterOutlineStatus @default(NOT_STARTED)
+  contentStatus    ChapterContentStatus @default(NOT_STARTED)
+  aiReviewStatus   String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  novel  Novel   @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  volume Volume? @relation(fields: [volumeId], references: [id], onDelete: SetNull)
+  publicationJobs PublicationJob[]
+
+  @@unique([novelId, chapterNumber])
+}
+
+model PublicationJob {
+  id             String            @id @default(cuid())
+  novelId        String
+  chapterId      String
+  platform       String            @default("fanqie")
+  status         PublicationStatus @default(PENDING)
+  scheduledAt    DateTime
+  attempts       Int               @default(0)
+  lastError      String?
+  remoteDraftId  String?
+  publishedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  novel   Novel   @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@index([platform, status, scheduledAt])
+  @@unique([chapterId, platform])
+}
+
+model Character {
+  id                         String   @id @default(cuid())
+  novelId                    String
+  name                       String
+  alias                      String?
+  gender                     String?
+  age                        String?
+  identity                   String?
+  faction                    String?
+  camp                       String?
+  appearance                 String?
+  personality                String?
+  speechStyle                String?
+  abilities                  String?
+  cultivationLevel           String?
+  skills                     String?
+  items                      String?
+  relationshipWithProtagonist String?
+  goal                       String?
+  secret                     String?
+  characterArc               String?
+  firstChapterNumber         Int?
+  lastChapterNumber          Int?
+  currentStatus              String?
+  isAlive                    Boolean  @default(true)
+  forbiddenRules             String?
+  notes                      String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+}
+
+model WorldSetting {
+  id         String   @id @default(cuid())
+  novelId    String
+  title      String
+  category   String
+  content    String
+  importance Int      @default(3)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+}
+
+model Foreshadow {
+  id                          String   @id @default(cuid())
+  novelId                     String
+  title                       String
+  content                     String
+  type                        String?
+  plantedChapterNumber        Int?
+  expectedResolveChapterNumber Int?
+  resolvedChapterNumber       Int?
+  relatedCharacters           String?
+  relatedItems                String?
+  relatedFactions             String?
+  importance                  Int      @default(3)
+  status                      String   @default("not_planted")
+  resolvePlan                 String?
+  notes                       String?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+}
+
+model TimelineEvent {
+  id                   String   @id @default(cuid())
+  novelId              String
+  chapterNumber        Int?
+  title                String
+  content              String
+  location             String?
+  relatedCharacters    String?
+  relatedFactions      String?
+  relatedItems         String?
+  impactOnPlot         String?
+  impactOnRelationships String?
+  isKeyEvent           Boolean  @default(false)
+  createdBy            String   @default("user")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+}
+
+model ForbiddenTerm {
+  id        String   @id @default(cuid())
+  novelId   String
+  term      String
+  category  String   @default("meme")
+  note      String?
+  severity  Int      @default(3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+}
+
+model AiTask {
+  id            String       @id @default(cuid())
+  novelId       String?
+  targetType    String?
+  targetId      String?
+  taskType      String
+  status        AiTaskStatus @default(PENDING)
+  prompt        String?
+  inputContext  Json?
+  outputContent String?
+  errorMessage  String?
+  model         String?
+  parameters    Json?
+  createdAt     DateTime     @default(now())
+  startedAt     DateTime?
+  finishedAt    DateTime?
+
+  novel Novel? @relation(fields: [novelId], references: [id], onDelete: SetNull)
+}
+
+model Version {
+  id            String   @id @default(cuid())
+  novelId       String
+  targetType    String
+  targetId      String
+  versionNumber Int
+  title         String?
+  content       String
+  changeSummary String?
+  createdBy     String   @default("user")
+  createdAt     DateTime @default(now())
+
+  novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+
+  @@index([targetType, targetId])
+}

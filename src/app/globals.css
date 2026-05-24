@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f7f5ef;
+  --foreground: #1e1f1d;
 }
 
 @theme inline {
@@ -12,15 +12,106 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
+  min-height: 100vh;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.label {
+  color: #55584f;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  border: 1px solid #d8d2c3;
+  border-radius: 8px;
+  background: #fffdf8;
+  padding: 0.7rem 0.8rem;
+  color: #1e1f1d;
+  outline: none;
+}
+
+.textarea {
+  min-height: 9rem;
+  line-height: 1.75;
+}
+
+.input:focus,
+.textarea:focus,
+.select:focus {
+  border-color: #28726a;
+  box-shadow: 0 0 0 3px rgba(40, 114, 106, 0.14);
+}
+
+.btn {
+  display: inline-flex;
+  min-height: 2.45rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid #28726a;
+  border-radius: 8px;
+  background: #28726a;
+  color: white;
+  padding: 0.55rem 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.btn.secondary {
+  border-color: #d8d2c3;
+  background: #fffdf8;
+  color: #2b302c;
+}
+
+.btn.danger {
+  border-color: #9f332f;
+  background: #9f332f;
+}
+
+.panel {
+  border: 1px solid #ded8ca;
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.muted {
+  color: #6e7168;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #d8d2c3;
+  border-radius: 999px;
+  background: #f8f3e7;
+  padding: 0.2rem 0.55rem;
+  color: #55584f;
+  font-size: 0.78rem;
+  font-weight: 650;
 }
