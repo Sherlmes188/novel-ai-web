@@ -104,6 +104,12 @@ model Novel {
   aiTasks       AiTask[]
   versions      Version[]
   publicationJobs PublicationJob[]
+  chapterReviews ChapterReview[]
+  chapterRevisions ChapterRevision[]
+  memoryChunks MemoryChunk[]
+  characterStateHistory CharacterStateHistory[]
+  foreshadowEvents ForeshadowEvent[]
+  worldSettingRevisions WorldSettingRevision[]
 }
 
 model NovelSetting {
@@ -162,8 +168,86 @@ model Chapter {
   novel  Novel   @relation(fields: [novelId], references: [id], onDelete: Cascade)
   volume Volume? @relation(fields: [volumeId], references: [id], onDelete: SetNull)
   publicationJobs PublicationJob[]
+  reviews ChapterReview[]
+  revisions ChapterRevision[]
 
   @@unique([novelId, chapterNumber])
+}
+
+model ChapterReview {
+  id           String   @id @default(cuid())
+  novelId      String
+  chapterId    String
+  reviewNo     Int
+  status       String   @default("OPEN")
+  overallScore Int?
+  summary      String?
+  rawOutput    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  novel   Novel   @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  issues  ChapterReviewIssue[]
+  revisions ChapterRevision[]
+
+  @@index([chapterId, createdAt])
+}
+
+model ChapterReviewIssue {
+  id          String   @id @default(cuid())
+  reviewId    String
+  type        String
+  severity    String
+  title       String
+  evidence    String?
+  explanation String
+  suggestion  String?
+  fixed       Boolean  @default(false)
+  ignored     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  review ChapterReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+}
+
+model ChapterRevision {
+  id             String   @id @default(cuid())
+  novelId         String
+  chapterId       String
+  baseVersionId   String?
+  sourceReviewId  String?
+  revisionNo      Int
+  instruction     String?
+  content         String
+  wordCount       Int      @default(0)
+  status          String   @default("DRAFT")
+  createdAt       DateTime @default(now())
+
+  novel   Novel   @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  sourceReview ChapterReview? @relation(fields: [sourceReviewId], references: [id], onDelete: SetNull)
+
+  @@index([chapterId, createdAt])
+}
+
+model MemoryChunk {
+  id            String   @id @default(cuid())
+  novelId       String
+  sourceType    String
+  sourceId      String?
+  chapterNumber Int?
+  title         String?
+  content       String
+  tokenEstimate Int      @default(0)
+  importance    Int      @default(3)
+  embedding     Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+
+  @@index([novelId, sourceType])
+  @@index([novelId, chapterNumber])
 }
 
 model PublicationJob {
@@ -218,6 +302,7 @@ model Character {
   updatedAt                  DateTime @updatedAt
 
   novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  stateHistory CharacterStateHistory[]
 }
 
 model WorldSetting {
@@ -231,6 +316,7 @@ model WorldSetting {
   updatedAt  DateTime @updatedAt
 
   novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  revisions WorldSettingRevision[]
 }
 
 model Foreshadow {
@@ -253,6 +339,61 @@ model Foreshadow {
   updatedAt                   DateTime @updatedAt
 
   novel Novel @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  events ForeshadowEvent[]
+}
+
+model CharacterStateHistory {
+  id             String   @id @default(cuid())
+  novelId        String
+  characterId    String
+  chapterId      String?
+  chapterNumber  Int?
+  location       String?
+  physicalState  String?
+  mentalState    String?
+  powerLevel     String?
+  items          String?
+  relationship   String?
+  goal           String?
+  eventSummary   String?
+  source         String   @default("ai")
+  createdAt      DateTime @default(now())
+
+  novel     Novel     @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@index([characterId, chapterNumber])
+}
+
+model ForeshadowEvent {
+  id              String   @id @default(cuid())
+  novelId         String
+  foreshadowId    String
+  chapterId       String?
+  chapterNumber   Int?
+  eventType       String
+  content         String
+  createdBy       String   @default("ai")
+  createdAt       DateTime @default(now())
+
+  novel      Novel      @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  foreshadow Foreshadow @relation(fields: [foreshadowId], references: [id], onDelete: Cascade)
+}
+
+model WorldSettingRevision {
+  id             String   @id @default(cuid())
+  worldSettingId String
+  novelId        String
+  chapterId      String?
+  chapterNumber  Int?
+  oldContent     String?
+  newContent     String
+  changeReason   String?
+  createdBy      String   @default("ai")
+  createdAt      DateTime @default(now())
+
+  novel        Novel        @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  worldSetting WorldSetting @relation(fields: [worldSettingId], references: [id], onDelete: Cascade)
 }
 
 model TimelineEvent {
@@ -301,11 +442,39 @@ model AiTask {
   errorMessage  String?
   model         String?
   parameters    Json?
+  priority      Int          @default(5)
+  attempts      Int          @default(0)
+  maxAttempts   Int          @default(2)
+  scheduledAt   DateTime?
+  lockedAt      DateTime?
+  lockedBy      String?
+  progress      Int          @default(0)
+  metadata      Json?
+  promptTokens  Int?
+  completionTokens Int?
+  totalTokens   Int?
+  estimatedCost Decimal?
   createdAt     DateTime     @default(now())
   startedAt     DateTime?
   finishedAt    DateTime?
 
   novel Novel? @relation(fields: [novelId], references: [id], onDelete: SetNull)
+}
+
+model AiModelConfig {
+  id          String   @id @default(cuid())
+  userId      String?
+  name        String
+  provider    String
+  baseUrl     String
+  apiKeyRef   String
+  model       String
+  purpose     String[] @default([])
+  temperature Float?
+  maxTokens   Int?
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Version {

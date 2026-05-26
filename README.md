@@ -56,6 +56,7 @@
 - 按章节号管理章节。
 - AI 可根据卷纲批量生成章节细纲。
 - 每章包含标题、细纲、正文、摘要、字数和状态。
+- 支持章节生成前检查，提前识别缺少卷纲、细纲为空、上一章摘要缺失、人物状态断裂、伏笔未回收和禁用词命中等风险。
 - 正文生成时会组合多层上下文：
   - 小说基础信息。
   - 总大纲。
@@ -66,7 +67,29 @@
   - 禁用表达。
   - 最近章节摘要。
   - 上一章主要内容。
+  - 长篇记忆检索结果。
 - 生成后自动更新章节字数和小说总字数。
+- 生成后会执行格式和质量校验，检查目标字数、Markdown 痕迹、解释性开头、超长段落、禁用词命中、对话引号和细纲偏离风险。
+
+### 结构化审稿与修订版闭环
+
+- 章节页支持结构化审稿，AI 必须输出 JSON。
+- 审稿结果会保存为可追踪的 `ChapterReview` 和 `ChapterReviewIssue`。
+- 审稿报告包含评分、摘要、问题类型、严重程度、证据、解释和修改建议。
+- 可基于任意审稿报告生成 `ChapterRevision` 修订版。
+- AI 修订不会直接覆盖正文，用户确认后才可应用。
+- 应用修订版前会自动把旧正文归档到版本历史。
+- 修订版支持应用和废弃状态，方便保留完整修稿链路。
+
+### 长篇记忆与检索
+
+- 新增长篇记忆库 `MemoryChunk`。
+- 支持将章节摘要、章节正文片段、人物状态、世界观、伏笔和时间线写入记忆库。
+- 章节正文会按约 1100 字切片索引。
+- 章节正文生成前会根据章节标题、细纲和补充要求检索远期记忆，并拼入 prompt。
+- 支持 OpenAI-compatible Embedding API。
+- 未配置 embedding 时会自动退化为关键词检索，保证功能可用。
+- 新增“记忆”页面，可查看记忆块数量、未生成 embedding 的块、来源统计、手动重建索引、索引单章和测试检索。
 
 ### 自动摘要、自审和资料回写
 
@@ -77,6 +100,8 @@
 - 提取人物状态变化。
 - 提取新增或确认的世界观信息。
 - 回写章节摘要、人物当前状态、人物物品/境界/关系、世界观资料。
+- 同步写入人物状态历史和世界观修订历史。
+- 自动更新当前章节的记忆索引。
 
 这个机制用于给长篇小说建立“滚动记忆”，让后续章节不必依赖完整正文，也能承接前文状态。
 
@@ -85,6 +110,9 @@
 - 人物资料字段包括姓名、别名、性别、年龄、身份、势力、阵营、外貌、性格、说话风格、能力、境界、技能、物品、目标、秘密、角色弧光、当前状态等。
 - 世界观资料按分类和重要程度管理。
 - AI 生成章节后可自动更新重要人物和世界观条目。
+- 人物页展示最近状态时间线。
+- 世界观页展示设定修订历史。
+- 新增 `ForeshadowEvent` 模型，为伏笔生命周期追踪预留事件流。
 
 ### 禁用词和禁用烂梗
 
@@ -95,8 +123,23 @@
 ### AI 任务记录
 
 - 每次 AI 调用都会记录为任务。
-- 任务记录包含任务类型、目标对象、状态、prompt、输出、错误信息、模型、开始时间和结束时间。
+- 任务记录包含任务类型、目标对象、状态、prompt、输出、错误信息、模型、开始时间、结束时间、重试次数、进度、token 和成本字段。
+- 失败任务支持在页面重试。
+- 成功任务支持复制 prompt 和 output。
 - 方便排查生成失败、prompt 问题和模型输出问题。
+
+### 多模型配置
+
+- 新增 AI 模型配置页面。
+- 支持记录 OpenAI-compatible provider、base URL、模型名、API Key 环境变量引用、用途、温度和最大 token。
+- 可按 planning、drafting、review、revision、embedding 等用途维护模型配置。
+- 当前页面先作为配置台账，后续可进一步接入任务调度选择逻辑。
+
+### 章节编辑诊断
+
+- 章节详情页提供编辑诊断面板。
+- 显示正文总字数、段落数、中文对话引号数量和禁用词命中数。
+- 显示正文格式校验 warning，帮助在保存、审稿和定稿前发现明显问题。
 
 ### 版本历史
 
@@ -167,8 +210,11 @@ novel-ai-web
 │       ├── access.ts
 │       ├── actions.ts
 │       ├── auth.ts
+│       ├── chapter-validation.ts
 │       ├── db.ts
 │       ├── deepseek.ts
+│       ├── embedding.ts
+│       ├── memory.ts
 │       ├── novel-idea.ts
 │       └── utils.ts
 ├── .env.example
@@ -181,6 +227,9 @@ novel-ai-web
 
 - `src/lib/actions.ts`：核心 Server Actions，包含小说创建、AI 生成、大纲、章节、人物、世界观、发布队列等主要业务逻辑。
 - `src/lib/deepseek.ts`：DeepSeek / OpenAI-compatible Chat Completions 调用封装。
+- `src/lib/embedding.ts`：OpenAI-compatible Embedding API 调用封装。
+- `src/lib/memory.ts`：长篇记忆索引、切片、检索和 prompt 格式化。
+- `src/lib/chapter-validation.ts`：章节正文生成后格式和风险校验。
 - `src/lib/auth.ts`：登录 Cookie 编码、解码和校验。
 - `src/lib/access.ts`：小说所有权校验。
 - `src/lib/novel-idea.ts`：AI 小说方案 JSON 解析和格式化。
@@ -203,8 +252,16 @@ novel-ai-web
 - `TimelineEvent`：时间线事件。
 - `ForbiddenTerm`：禁用词和禁用表达。
 - `AiTask`：AI 调用记录。
+- `AiModelConfig`：多模型配置。
 - `Version`：版本归档。
 - `PublicationJob`：发布队列任务。
+- `ChapterReview`：结构化审稿报告。
+- `ChapterReviewIssue`：结构化审稿问题项。
+- `ChapterRevision`：基于审稿生成的修订版。
+- `MemoryChunk`：长篇记忆块。
+- `CharacterStateHistory`：人物状态历史。
+- `ForeshadowEvent`：伏笔事件。
+- `WorldSettingRevision`：世界观修订历史。
 
 ## 环境要求
 
@@ -264,6 +321,10 @@ LOGIN_PASSWORD_HASH=replace_with_bcrypt_hash
 DEEPSEEK_API_KEY=replace_with_your_key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
+
+EMBEDDING_API_KEY=
+EMBEDDING_BASE_URL=
+EMBEDDING_MODEL=
 ```
 
 ### 4. 准备数据库
@@ -395,6 +456,19 @@ npm run fanqie:publish
 | `AI_DEFAULT_TEMPERATURE` | 默认生成温度 | `0.8` |
 | `AI_PLANNING_TEMPERATURE` | 规划类任务温度 | `0.7` |
 | `AI_REVIEW_TEMPERATURE` | 审稿类任务温度 | `0.3` |
+| `AI_REVISION_TEMPERATURE` | 修订类任务温度 | `0.45` |
+
+### Embedding / 记忆检索配置
+
+| 变量 | 说明 | 默认值 |
+| --- | --- | --- |
+| `EMBEDDING_PROVIDER` | Embedding 服务类型标记 | `openai_compatible` |
+| `EMBEDDING_BASE_URL` | OpenAI-compatible Embedding API 地址 | 空 |
+| `EMBEDDING_API_KEY` | Embedding API Key | 空 |
+| `EMBEDDING_MODEL` | Embedding 模型名 | 空 |
+| `EMBEDDING_DIMENSION` | Embedding 维度记录 | `1536` |
+
+如果未配置 `EMBEDDING_API_KEY` 和 `EMBEDDING_MODEL`，系统仍会使用关键词检索作为兜底，不会阻断章节生成。
 
 ### 番茄发布配置
 
@@ -445,11 +519,22 @@ npm run fanqie:publish
 1. 进入章节页面。
 2. 创建章节或按卷批量生成章节细纲。
 3. 打开单章。
-4. 检查章节细纲。
-5. 点击“根据细纲生成正文”。
-6. 查看 AI 审稿和章节摘要。
-7. 手动修改正文。
-8. 标记为定稿。
+4. 点击“生成前检查”，确认连续性风险。
+5. 检查章节细纲和编辑诊断。
+6. 点击“根据细纲生成正文”。
+7. 查看生成后校验、章节摘要和自动自审。
+8. 执行“结构化审稿”。
+9. 根据审稿报告生成修订版。
+10. 人工确认后应用修订版。
+11. 标记为定稿。
+
+### 使用长篇记忆
+
+1. 进入小说的“记忆”页面。
+2. 点击“重建本书记忆索引”，将现有章节、人物、世界观、伏笔和时间线写入记忆块。
+3. 对新生成或刚修改的章节，可单独点击“索引章节”。
+4. 在检索测试框输入人物、设定、伏笔或剧情关键词，检查召回结果。
+5. 后续生成正文时，系统会自动检索相关远期记忆并加入 prompt。
 
 ### 发布章节
 
@@ -548,29 +633,34 @@ git ls-files -o --exclude-standard
 
 ## 当前限制
 
-- 当前 AI 任务主要是同步 Server Action，长任务可能受部署环境超时影响。
-- 目前没有向量检索/RAG，长篇远期记忆主要依赖摘要、人物和世界观表。
-- 审稿结果仍以文本为主，结构化审稿和自动修稿闭环仍待完善。
+- AI 任务仍主要由 Server Action 同步执行，超长生成任务可能受部署环境超时影响。
+- `AiTask` 已具备队列扩展字段，但尚未实现独立后台 worker 消费。
+- 记忆检索已支持 embedding 和关键词兜底，但生产部署默认未强依赖 pgvector；如需更大规模向量检索，可进一步迁移到 PostgreSQL + pgvector。
+- 多模型配置页面已经具备配置台账，但任务运行时仍主要使用环境变量中的默认模型。
+- Token 和成本字段已经预留，当前还未从模型响应中自动计算费用。
 - 番茄发布自动化依赖网页结构，平台页面变更后可能需要调整选择器。
-- 目前更适合个人或小团队使用，多租户、权限分级、成本统计仍待增强。
+- 目前更适合个人或小团队使用，多租户、权限分级和团队协作仍待增强。
 
-## 后续路线图
+## 已完成优化路线
 
-计划优化方向：
+当前已经完成后续优化文档中各阶段的第一版落地：
 
-- 结构化审稿报告。
-- 根据审稿报告自动生成修订版。
-- 修订版和原文 diff 对比。
-- 章节生成前检查。
-- 章节生成后格式校验。
-- pgvector / RAG 长篇记忆检索。
-- 角色状态历史表。
-- 伏笔生命周期追踪。
-- 世界观版本历史。
-- 异步 AI 任务队列。
-- 多模型配置。
-- Token 和成本统计。
-- 更完整的创作工作台界面。
+- P0：生成前检查、正文生成后校验、AI 任务复制和失败重试。
+- P1：结构化审稿报告、审稿问题项、基于审稿生成修订版、人工应用修订版。
+- P2：长篇记忆块、章节摘要/正文/人物/世界观/伏笔/时间线索引、生成前记忆检索。
+- P3：人物状态历史、世界观修订历史、伏笔事件模型。
+- P4：章节编辑诊断、禁用词和格式风险提示。
+- P5：AI 任务运营字段、多模型配置台账、token 和成本字段预留。
+
+## 后续可增强方向
+
+- 将 `MemoryChunk.embedding` 从 JSON 存储迁移到 pgvector，并使用数据库向量索引。
+- 为 AI 任务增加独立 worker，避免长任务阻塞页面请求。
+- 接入 `AiModelConfig` 到实际任务路由，让不同任务自动选择不同模型。
+- 自动解析模型返回的 token usage 并计算估算成本。
+- 增加当前正文 vs 修订版、当前正文 vs 历史版本的 diff 对比视图。
+- 扩展伏笔页面，展示从埋设、发展到回收的完整事件流。
+- 增加章节编辑器自动保存、查找替换和更细的文本质量检查。
 
 更多细节可参考项目中的后续优化文档。
 
@@ -585,4 +675,3 @@ git ls-files -o --exclude-standard
 本项目用于个人创作辅助和自动化工作流研究。使用 AI 生成内容时，请自行检查内容质量、版权风险、平台规则和发布合规性。
 
 番茄发布脚本仅用于辅助个人操作。使用前请确认相关平台规则，并自行承担自动化操作带来的风险。
-

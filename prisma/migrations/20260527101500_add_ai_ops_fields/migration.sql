@@ -1,0 +1,30 @@
+ALTER TABLE "AiTask" ADD COLUMN "priority" INTEGER NOT NULL DEFAULT 5;
+ALTER TABLE "AiTask" ADD COLUMN "attempts" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "AiTask" ADD COLUMN "maxAttempts" INTEGER NOT NULL DEFAULT 2;
+ALTER TABLE "AiTask" ADD COLUMN "scheduledAt" TIMESTAMP(3);
+ALTER TABLE "AiTask" ADD COLUMN "lockedAt" TIMESTAMP(3);
+ALTER TABLE "AiTask" ADD COLUMN "lockedBy" TEXT;
+ALTER TABLE "AiTask" ADD COLUMN "progress" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "AiTask" ADD COLUMN "metadata" JSONB;
+ALTER TABLE "AiTask" ADD COLUMN "promptTokens" INTEGER;
+ALTER TABLE "AiTask" ADD COLUMN "completionTokens" INTEGER;
+ALTER TABLE "AiTask" ADD COLUMN "totalTokens" INTEGER;
+ALTER TABLE "AiTask" ADD COLUMN "estimatedCost" DECIMAL(65,30);
+
+CREATE TABLE "AiModelConfig" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT,
+    "name" TEXT NOT NULL,
+    "provider" TEXT NOT NULL,
+    "baseUrl" TEXT NOT NULL,
+    "apiKeyRef" TEXT NOT NULL,
+    "model" TEXT NOT NULL,
+    "purpose" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "temperature" DOUBLE PRECISION,
+    "maxTokens" INTEGER,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AiModelConfig_pkey" PRIMARY KEY ("id")
+);

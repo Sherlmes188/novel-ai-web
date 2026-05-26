@@ -9,6 +9,8 @@ import { clearSessionCookie, requireSession, setSessionCookie } from "@/lib/auth
 import { requireOwnedNovelId } from "@/lib/access";
 import { intFromForm, textFromForm, wordCount } from "@/lib/utils";
 import { parseNovelIdea } from "@/lib/novel-idea";
+import { formatChapterValidationResult, validateGeneratedChapter } from "@/lib/chapter-validation";
+import { formatMemoryForPrompt, indexChapterMemory, rebuildNovelMemory, searchNovelMemory } from "@/lib/memory";
 
 async function ensureConfiguredAdminUser() {
   const username = process.env.LOGIN_USERNAME || "admin";
@@ -794,7 +796,7 @@ export async function batchFinalizeChaptersAction(formData: FormData) {
 export async function createCharacterAction(formData: FormData) {
   const novelId = textFromForm(formData, "novelId");
   await requireOwnedNovelId(novelId);
-  await prisma.character.create({
+  const character = await prisma.character.create({
     data: {
       novelId,
       name: textFromForm(formData, "name") || "未命名人物",
@@ -807,19 +809,38 @@ export async function createCharacterAction(formData: FormData) {
       notes: textFromForm(formData, "notes") || null,
     },
   });
+  await prisma.characterStateHistory.create({
+    data: {
+      novelId,
+      characterId: character.id,
+      powerLevel: character.cultivationLevel,
+      relationship: character.relationshipWithProtagonist,
+      eventSummary: character.currentStatus || character.notes || "手动创建人物",
+      source: "user",
+    },
+  });
   revalidatePath(`/novels/${novelId}/characters`);
 }
 
 export async function createWorldSettingAction(formData: FormData) {
   const novelId = textFromForm(formData, "novelId");
   await requireOwnedNovelId(novelId);
-  await prisma.worldSetting.create({
+  const setting = await prisma.worldSetting.create({
     data: {
       novelId,
       title: textFromForm(formData, "title") || "未命名设定",
       category: textFromForm(formData, "category") || "world",
       content: textFromForm(formData, "content"),
       importance: intFromForm(formData.get("importance")) || 3,
+    },
+  });
+  await prisma.worldSettingRevision.create({
+    data: {
+      novelId,
+      worldSettingId: setting.id,
+      newContent: setting.content,
+      changeReason: "手动创建设定",
+      createdBy: "user",
     },
   });
   revalidatePath(`/novels/${novelId}/world`);
@@ -840,6 +861,39 @@ export async function createForbiddenTermAction(formData: FormData) {
     },
   });
   revalidatePath(`/novels/${novelId}/banned`);
+}
+
+export async function createAiModelConfigAction(formData: FormData) {
+  const novelId = textFromForm(formData, "novelId");
+  await requireOwnedNovelId(novelId);
+  const purpose = textFromForm(formData, "purpose")
+    .split(/[,\s，、]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  await prisma.aiModelConfig.create({
+    data: {
+      name: textFromForm(formData, "name") || "未命名模型",
+      provider: textFromForm(formData, "provider") || "openai_compatible",
+      baseUrl: textFromForm(formData, "baseUrl") || process.env.DEEPSEEK_BASE_URL || "",
+      apiKeyRef: textFromForm(formData, "apiKeyRef") || "DEEPSEEK_API_KEY",
+      model: textFromForm(formData, "model") || process.env.DEEPSEEK_MODEL || "deepseek-chat",
+      purpose,
+      temperature: Number.isFinite(Number(formData.get("temperature"))) ? Number(formData.get("temperature")) : null,
+      maxTokens: intFromForm(formData.get("maxTokens")),
+    },
+  });
+  revalidatePath(`/novels/${novelId}/ai-models`);
+}
+
+export async function toggleAiModelConfigAction(formData: FormData) {
+  const novelId = textFromForm(formData, "novelId");
+  const id = textFromForm(formData, "id");
+  await requireOwnedNovelId(novelId);
+  const config = await prisma.aiModelConfig.findUnique({ where: { id } });
+  if (config) {
+    await prisma.aiModelConfig.update({ where: { id }, data: { enabled: !config.enabled } });
+  }
+  revalidatePath(`/novels/${novelId}/ai-models`);
 }
 
 export async function deleteForbiddenTermAction(formData: FormData) {
@@ -869,9 +923,19 @@ export async function aiAction(formData: FormData) {
     },
   });
   const chapter = targetId ? await prisma.chapter.findFirst({ where: { id: targetId, novelId } }) : null;
-  let prompt = buildPrompt(taskType, novel, chapter, textFromForm(formData, "instruction"));
-  if (chapter && (taskType === "chapter_content" || taskType === "chapter_outline" || taskType === "review_chapter")) {
+  let instruction = textFromForm(formData, "instruction");
+  if (chapter && taskType === "chapter_content") {
+    const additions = await latestPrecheckPromptAdditions(novelId, chapter.id);
+    if (additions) {
+      instruction = [instruction, `【生成前检查建议】\n${additions}`].filter(Boolean).join("\n\n");
+    }
+  }
+  let prompt = buildPrompt(taskType, novel, chapter, instruction);
+  if (chapter && ["chapter_content", "chapter_outline", "review_chapter", "precheck_chapter"].includes(taskType)) {
     prompt += await buildChapterLocalContext(novelId, chapter.chapterNumber, chapter.volumeId);
+  }
+  if (chapter && taskType === "chapter_content") {
+    prompt += await buildMemoryPromptContext(novelId, chapter, instruction);
   }
   const task = await prisma.aiTask.create({
     data: {
@@ -889,10 +953,16 @@ export async function aiAction(formData: FormData) {
   let redirectPath = `/novels/${novelId}/ai-tasks`;
   try {
     const output = await callDeepSeek([
-      { role: "system", content: "你是中文网文创作后台的专业 AI 助手。输出直接可编辑的中文内容，不要寒暄。" },
+      {
+        role: "system",
+        content: taskType === "precheck_chapter" || taskType === "review_chapter"
+          ? "你是中文网文创作后台的专业 AI 助手。必须输出严格 JSON，不要 Markdown，不要寒暄。"
+          : "你是中文网文创作后台的专业 AI 助手。输出直接可编辑的中文内容，不要寒暄。",
+      },
       { role: "user", content: prompt },
     ], {
-      temperature: taskType.includes("review") ? Number(process.env.AI_REVIEW_TEMPERATURE ?? 0.3) : undefined,
+      responseFormat: taskType === "precheck_chapter" || taskType === "review_chapter" ? "json" : "text",
+      temperature: taskType.includes("review") || taskType === "precheck_chapter" ? Number(process.env.AI_REVIEW_TEMPERATURE ?? 0.3) : undefined,
     });
 
     await prisma.aiTask.update({
@@ -912,6 +982,8 @@ export async function aiAction(formData: FormData) {
       await prisma.chapter.update({ where: { id: chapter.id }, data: { outline: output, outlineStatus: "PENDING_CONFIRM" } });
       redirectPath = `/novels/${novelId}/chapters/${chapter.id}`;
     } else if (chapter && taskType === "chapter_content") {
+      const validation = validateGeneratedChapter(output, novel, chapter);
+      const validationText = formatChapterValidationResult(validation);
       if (chapter.content) {
         await prisma.version.create({
           data: {
@@ -927,13 +999,29 @@ export async function aiAction(formData: FormData) {
       }
       await prisma.chapter.update({
         where: { id: chapter.id },
-        data: { content: output, wordCount: wordCount(output), contentStatus: "PENDING_REVIEW" },
+        data: {
+          content: output,
+          wordCount: wordCount(output),
+          contentStatus: validation.passed ? "PENDING_REVIEW" : "NEED_REVISION",
+          aiReviewStatus: validationText,
+        },
+      });
+      await prisma.aiTask.update({
+        where: { id: task.id },
+        data: { outputContent: `${output}\n\n${validationText}` },
       });
       await summarizeAndReviewChapter(novel, novelId, chapter.id, output);
+      await indexChapterMemory(novelId, chapter.id);
       await refreshNovelWordCount(novelId);
       redirectPath = `/novels/${novelId}/chapters/${chapter.id}`;
     } else if (chapter && taskType === "review_chapter") {
-      await prisma.chapter.update({ where: { id: chapter.id }, data: { aiReviewStatus: output, contentStatus: "NEED_REVISION" } });
+      const reviewText = formatStructuredReview(output);
+      await saveStructuredChapterReview(novelId, chapter.id, output);
+      await prisma.chapter.update({ where: { id: chapter.id }, data: { aiReviewStatus: reviewText, contentStatus: "NEED_REVISION" } });
+      redirectPath = `/novels/${novelId}/chapters/${chapter.id}`;
+    } else if (chapter && taskType === "precheck_chapter") {
+      const precheckText = formatPrecheckResult(output);
+      await prisma.chapter.update({ where: { id: chapter.id }, data: { aiReviewStatus: precheckText } });
       redirectPath = `/novels/${novelId}/chapters/${chapter.id}`;
     }
   } catch (error) {
@@ -944,6 +1032,307 @@ export async function aiAction(formData: FormData) {
     redirectPath = `/novels/${novelId}/ai-tasks`;
   }
   redirect(redirectPath);
+}
+
+export async function retryAiTaskAction(formData: FormData) {
+  const novelId = textFromForm(formData, "novelId");
+  const taskId = textFromForm(formData, "taskId");
+  await requireOwnedNovelId(novelId);
+  const task = await prisma.aiTask.findFirst({ where: { id: taskId, novelId } });
+  if (!task || task.status !== "FAILED" || !task.prompt) {
+    redirect(`/novels/${novelId}/ai-tasks`);
+  }
+
+  await prisma.aiTask.update({
+    where: { id: task.id },
+    data: {
+      status: "RUNNING",
+      errorMessage: null,
+      attempts: { increment: 1 },
+      startedAt: new Date(),
+      finishedAt: null,
+    },
+  });
+
+  try {
+    const output = await callDeepSeek(
+      [
+        {
+          role: "system",
+          content: task.taskType === "precheck_chapter" || task.taskType === "review_chapter"
+            ? "你是中文网文创作后台的专业 AI 助手。必须输出严格 JSON，不要 Markdown，不要寒暄。"
+            : "你是中文网文创作后台的专业 AI 助手。输出直接可编辑的中文内容，不要寒暄。",
+        },
+        { role: "user", content: task.prompt },
+      ],
+      {
+        responseFormat: task.taskType === "precheck_chapter" || task.taskType === "review_chapter" ? "json" : "text",
+        temperature: task.taskType.includes("review") || task.taskType === "precheck_chapter"
+          ? Number(process.env.AI_REVIEW_TEMPERATURE ?? 0.3)
+          : undefined,
+      },
+    );
+    await prisma.aiTask.update({
+      where: { id: task.id },
+      data: { status: "SUCCESS", outputContent: output, finishedAt: new Date() },
+    });
+  } catch (error) {
+    await prisma.aiTask.update({
+      where: { id: task.id },
+      data: {
+        status: "FAILED",
+        errorMessage: error instanceof Error ? error.message : String(error),
+        finishedAt: new Date(),
+      },
+    });
+  }
+  redirect(`/novels/${novelId}/ai-tasks`);
+}
+
+export async function generateRevisionFromReviewAction(formData: FormData) {
+  const novelId = textFromForm(formData, "novelId");
+  const chapterId = textFromForm(formData, "chapterId");
+  const reviewId = textFromForm(formData, "reviewId");
+  const instruction = textFromForm(formData, "instruction");
+  await requireOwnedNovelId(novelId);
+  const novel = await loadNovelForPrompt(novelId);
+  const chapter = await prisma.chapter.findFirstOrThrow({ where: { id: chapterId, novelId } });
+  const review = await prisma.chapterReview.findFirstOrThrow({
+    where: { id: reviewId, novelId, chapterId },
+    include: { issues: { orderBy: { createdAt: "asc" } } },
+  });
+  const prompt = buildRevisionPrompt(novel, chapter, review, instruction)
+    + await buildChapterLocalContext(novelId, chapter.chapterNumber, chapter.volumeId);
+  const output = await runAiTask({
+    novelId,
+    targetType: "chapter_revision",
+    targetId: chapterId,
+    taskType: "revise_chapter_from_review",
+    prompt,
+    systemPrompt: "你是中文长篇网文修稿助手。只输出修订后的完整正文，不要解释，不要 Markdown。",
+    temperature: Number(process.env.AI_REVISION_TEMPERATURE ?? 0.45),
+  });
+  await prisma.chapterRevision.create({
+    data: {
+      novelId,
+      chapterId,
+      sourceReviewId: review.id,
+      revisionNo: await nextChapterRevisionNo(chapterId),
+      instruction: instruction || null,
+      content: output,
+      wordCount: wordCount(output),
+    },
+  });
+  revalidatePath(`/novels/${novelId}/chapters/${chapterId}`);
+}
+
+export async function applyChapterRevisionAction(formData: FormData) {
+  const novelId = textFromForm(formData, "novelId");
+  const chapterId = textFromForm(formData, "chapterId");
+  const revisionId = textFromForm(formData, "revisionId");
+  await requireOwnedNovelId(novelId);
+  const [chapter, revision] = await Promise.all([
+    prisma.chapter.findFirstOrThrow({ where: { id: chapterId, novelId } }),
+    prisma.chapterRevision.findFirstOrThrow({ where: { id: revisionId, chapterId, novelId } }),
+  ]);
+  if (revision.status !== "DRAFT") {
+    revalidatePath(`/novels/${novelId}/chapters/${chapterId}`);
+    return;
+  }
+  let baseVersionId: string | undefined;
+  if (chapter.content) {
+    const version = await prisma.version.create({
+      data: {
+        novelId,
+        targetType: "chapter_content",
+        targetId: chapter.id,
+        versionNumber: await nextVersion("chapter_content", chapter.id),
+        title: chapter.title,
+        content: chapter.content,
+        changeSummary: `应用修订版 v${revision.revisionNo} 前自动归档`,
+      },
+    });
+    baseVersionId = version.id;
+  }
+  await prisma.$transaction([
+    prisma.chapter.update({
+      where: { id: chapter.id },
+      data: {
+        content: revision.content,
+        wordCount: wordCount(revision.content),
+        contentStatus: "PENDING_REVIEW",
+      },
+    }),
+    prisma.chapterRevision.update({
+      where: { id: revision.id },
+      data: { status: "APPLIED", baseVersionId },
+    }),
+    ...(revision.sourceReviewId
+      ? [prisma.chapterReview.update({ where: { id: revision.sourceReviewId }, data: { status: "FIXED" } })]
+      : []),
+  ]);
+  await refreshNovelWordCount(novelId);
+  revalidatePath(`/novels/${novelId}/chapters/${chapterId}`);
+}
+
+export async function discardChapterRevisionAction(formData: FormData) {
+  const novelId = textFromForm(formData, "novelId");
+  const chapterId = textFromForm(formData, "chapterId");
+  const revisionId = textFromForm(formData, "revisionId");
+  await requireOwnedNovelId(novelId);
+  await prisma.chapterRevision.updateMany({
+    where: { id: revisionId, chapterId, novelId, status: "DRAFT" },
+    data: { status: "DISCARDED" },
+  });
+  revalidatePath(`/novels/${novelId}/chapters/${chapterId}`);
+}
+
+export async function rebuildNovelMemoryAction(formData: FormData) {
+  const novelId = textFromForm(formData, "novelId");
+  await requireOwnedNovelId(novelId);
+  await rebuildNovelMemory(novelId);
+  revalidatePath(`/novels/${novelId}/memory`);
+}
+
+export async function indexChapterMemoryAction(formData: FormData) {
+  const novelId = textFromForm(formData, "novelId");
+  const chapterId = textFromForm(formData, "chapterId");
+  await requireOwnedNovelId(novelId);
+  if (chapterId) {
+    await indexChapterMemory(novelId, chapterId);
+  }
+  revalidatePath(`/novels/${novelId}/memory`);
+  revalidatePath(`/novels/${novelId}/chapters/${chapterId}`);
+}
+
+async function latestPrecheckPromptAdditions(novelId: string, chapterId: string) {
+  const task = await prisma.aiTask.findFirst({
+    where: {
+      novelId,
+      targetType: "chapter",
+      targetId: chapterId,
+      taskType: "precheck_chapter",
+      status: "SUCCESS",
+      outputContent: { not: null },
+    },
+    orderBy: { finishedAt: "desc" },
+    select: { outputContent: true },
+  });
+  if (!task?.outputContent) return "";
+  try {
+    const parsed = parseJsonPayload(task.outputContent) as { suggestedPromptAdditions?: unknown };
+    return typeof parsed.suggestedPromptAdditions === "string" ? parsed.suggestedPromptAdditions.trim().slice(0, 1500) : "";
+  } catch {
+    return "";
+  }
+}
+
+function formatPrecheckResult(output: string) {
+  try {
+    const parsed = parseJsonPayload(output) as {
+      canGenerate?: boolean;
+      riskLevel?: string;
+      issues?: { type?: string; severity?: string; message?: string; suggestion?: string }[];
+      suggestedPromptAdditions?: string;
+    };
+    const issues = Array.isArray(parsed.issues) ? parsed.issues : [];
+    return [
+      "【生成前检查】",
+      `能否生成：${parsed.canGenerate === false ? "建议先修正" : "可以继续生成"}`,
+      `风险等级：${parsed.riskLevel || "unknown"}`,
+      "",
+      "问题：",
+      ...(issues.length
+        ? issues.map((item) => `- [${item.severity || "info"}] ${item.message || item.type || "未命名问题"}${item.suggestion ? ` 建议：${item.suggestion}` : ""}`)
+        : ["- 未发现明显阻断问题。"]),
+      parsed.suggestedPromptAdditions ? `\n建议自动拼入正文 Prompt：\n${parsed.suggestedPromptAdditions}` : "",
+    ].filter(Boolean).join("\n");
+  } catch {
+    return `【生成前检查】\n${output}`;
+  }
+}
+
+function formatStructuredReview(output: string) {
+  try {
+    const parsed = parseJsonPayload(output) as {
+      overallScore?: number;
+      summary?: string;
+      mustFixBeforeFinalize?: boolean;
+      issues?: { type?: string; severity?: string; title?: string; evidence?: string; explanation?: string; suggestion?: string }[];
+    };
+    const issues = Array.isArray(parsed.issues) ? parsed.issues : [];
+    return [
+      "【结构化审稿】",
+      `评分：${typeof parsed.overallScore === "number" ? parsed.overallScore : "未给出"}`,
+      `定稿前必须修复：${parsed.mustFixBeforeFinalize ? "是" : "否"}`,
+      parsed.summary ? `摘要：${parsed.summary}` : "",
+      "",
+      "问题清单：",
+      ...(issues.length
+        ? issues.map((item, index) => [
+            `${index + 1}. [${item.severity || "info"} / ${item.type || "general"}] ${item.title || "未命名问题"}`,
+            item.evidence ? `证据：${item.evidence}` : "",
+            item.explanation ? `说明：${item.explanation}` : "",
+            item.suggestion ? `建议：${item.suggestion}` : "",
+          ].filter(Boolean).join("\n"))
+        : ["未发现明确问题。"]),
+      "",
+      "原始 JSON：",
+      output,
+    ].filter(Boolean).join("\n");
+  } catch {
+    return `【结构化审稿解析失败，保留原始输出】\n${output}`;
+  }
+}
+
+async function saveStructuredChapterReview(novelId: string, chapterId: string, output: string) {
+  let parsed: {
+    overallScore?: unknown;
+    summary?: unknown;
+    issues?: {
+      type?: unknown;
+      severity?: unknown;
+      title?: unknown;
+      evidence?: unknown;
+      explanation?: unknown;
+      suggestion?: unknown;
+    }[];
+  };
+  try {
+    parsed = parseJsonPayload(output) as typeof parsed;
+  } catch {
+    parsed = {
+      summary: "审稿 JSON 解析失败，已保存原始输出。",
+      issues: [{
+        type: "format",
+        severity: "medium",
+        title: "审稿输出不是可解析 JSON",
+        explanation: "AI 审稿结果无法结构化解析，请查看 rawOutput。",
+        suggestion: "重新执行结构化审稿。",
+      }],
+    };
+  }
+  const issues = Array.isArray(parsed.issues) ? parsed.issues.slice(0, 80) : [];
+  await prisma.chapterReview.create({
+    data: {
+      novelId,
+      chapterId,
+      reviewNo: await nextChapterReviewNo(chapterId),
+      overallScore: typeof parsed.overallScore === "number" ? parsed.overallScore : null,
+      summary: cleanOptionalText(parsed.summary, 2000) || null,
+      rawOutput: output,
+      issues: {
+        create: issues.map((issue, index) => ({
+          type: cleanOptionalText(issue.type, 40) || "general",
+          severity: cleanOptionalText(issue.severity, 30) || "medium",
+          title: cleanOptionalText(issue.title, 120) || `问题 ${index + 1}`,
+          evidence: cleanOptionalText(issue.evidence, 1000),
+          explanation: cleanOptionalText(issue.explanation, 2000) || "AI 未提供详细说明。",
+          suggestion: cleanOptionalText(issue.suggestion, 2000),
+        })),
+      },
+    },
+  });
 }
 
 async function loadNovelForPrompt(novelId: string) {
@@ -1023,6 +1412,14 @@ async function nextVersion(targetType: string, targetId: string) {
   );
 }
 
+async function nextChapterReviewNo(chapterId: string) {
+  return (await prisma.chapterReview.count({ where: { chapterId } })) + 1;
+}
+
+async function nextChapterRevisionNo(chapterId: string) {
+  return (await prisma.chapterRevision.count({ where: { chapterId } })) + 1;
+}
+
 async function refreshNovelWordCount(novelId: string) {
   const chapters = await prisma.chapter.findMany({ where: { novelId }, select: { wordCount: true } });
   await prisma.novel.update({
@@ -1081,6 +1478,19 @@ ${summaries || "这是开篇或前文摘要尚未建立。"}
 4. 禁用烂梗库中的表达不能使用，类似表达也要避开。`;
 }
 
+async function buildMemoryPromptContext(novelId: string, chapter: NonNullable<PromptChapter>, instruction: string) {
+  const query = [
+    chapter.title,
+    chapter.outline || "",
+    instruction,
+  ].filter(Boolean).join("\n");
+  const chunks = await searchNovelMemory(novelId, query, {
+    topK: 8,
+    beforeChapterNumber: chapter.chapterNumber,
+  });
+  return formatMemoryForPrompt(chunks);
+}
+
 async function summarizeAndReviewChapter(novel: PromptNovel, novelId: string, chapterId: string, content: string) {
   try {
     const forbiddenText = novel.forbiddenTerms?.map((item) => item.term).join("、") || "无";
@@ -1135,14 +1545,24 @@ async function summarizeAndReviewChapter(novel: PromptNovel, novelId: string, ch
       characterUpdates?: CharacterMemoryUpdate[];
       worldUpdates?: WorldMemoryUpdate[];
     };
+    const existingChapter = await prisma.chapter.findUnique({
+      where: { id: chapterId },
+      select: { aiReviewStatus: true, chapterNumber: true },
+    });
+    const reviewText = parsed.review ? String(parsed.review) : undefined;
     await prisma.chapter.update({
       where: { id: chapterId },
       data: {
         summary: parsed.summary ? String(parsed.summary) : undefined,
-        aiReviewStatus: parsed.review ? String(parsed.review) : undefined,
+        aiReviewStatus: reviewText
+          ? [existingChapter?.aiReviewStatus, "【自动摘要自审】", reviewText].filter(Boolean).join("\n\n")
+          : undefined,
       },
     });
-    await applyChapterMemoryUpdates(novelId, parsed.characterUpdates, parsed.worldUpdates);
+    await applyChapterMemoryUpdates(novelId, parsed.characterUpdates, parsed.worldUpdates, {
+      chapterId,
+      chapterNumber: existingChapter?.chapterNumber,
+    });
   } catch {
     // 摘要、自审、资料回写失败不应阻断正文保存。
   }
@@ -1174,6 +1594,7 @@ async function applyChapterMemoryUpdates(
   novelId: string,
   characterUpdates?: CharacterMemoryUpdate[],
   worldUpdates?: WorldMemoryUpdate[],
+  context: { chapterId?: string; chapterNumber?: number } = {},
 ) {
   for (const update of Array.isArray(characterUpdates) ? characterUpdates.slice(0, 12) : []) {
     const name = cleanShortText(update.name, 30);
@@ -1201,8 +1622,22 @@ async function applyChapterMemoryUpdates(
     };
     if (existing) {
       await prisma.character.update({ where: { id: existing.id }, data: compactData(data) });
+      await prisma.characterStateHistory.create({
+        data: {
+          novelId,
+          characterId: existing.id,
+          chapterId: context.chapterId,
+          chapterNumber: context.chapterNumber,
+          powerLevel: data.cultivationLevel,
+          items: data.items,
+          relationship: data.relationshipWithProtagonist,
+          goal: data.goal,
+          eventSummary: data.currentStatus || cleanOptionalText(update.notes, 800),
+          source: "ai",
+        },
+      });
     } else {
-      await prisma.character.create({
+      const created = await prisma.character.create({
         data: {
           novelId,
           name,
@@ -1216,6 +1651,20 @@ async function applyChapterMemoryUpdates(
           notes: data.notes,
         },
       });
+      await prisma.characterStateHistory.create({
+        data: {
+          novelId,
+          characterId: created.id,
+          chapterId: context.chapterId,
+          chapterNumber: context.chapterNumber,
+          powerLevel: data.cultivationLevel,
+          items: data.items,
+          relationship: data.relationshipWithProtagonist,
+          goal: data.goal,
+          eventSummary: data.currentStatus || cleanOptionalText(update.notes, 800) || "本章新增人物",
+          source: "ai",
+        },
+      });
     }
   }
 
@@ -1226,21 +1675,45 @@ async function applyChapterMemoryUpdates(
     const category = cleanShortText(update.category, 40) || "chapter_memory";
     const existing = await prisma.worldSetting.findFirst({ where: { novelId, title, category } });
     if (existing) {
+      const newContent = mergeNotes(existing.content, content) || content;
       await prisma.worldSetting.update({
         where: { id: existing.id },
         data: {
-          content: mergeNotes(existing.content, content),
+          content: newContent,
           importance: Math.max(existing.importance, normalizePositiveInt(update.importance, 2)),
         },
       });
+      await prisma.worldSettingRevision.create({
+        data: {
+          novelId,
+          worldSettingId: existing.id,
+          chapterId: context.chapterId,
+          chapterNumber: context.chapterNumber,
+          oldContent: existing.content,
+          newContent,
+          changeReason: "章节摘要回写",
+          createdBy: "ai",
+        },
+      });
     } else {
-      await prisma.worldSetting.create({
+      const created = await prisma.worldSetting.create({
         data: {
           novelId,
           title,
           category,
           content,
           importance: normalizePositiveInt(update.importance, 2),
+        },
+      });
+      await prisma.worldSettingRevision.create({
+        data: {
+          novelId,
+          worldSettingId: created.id,
+          chapterId: context.chapterId,
+          chapterNumber: context.chapterNumber,
+          newContent: content,
+          changeReason: "章节摘要新增",
+          createdBy: "ai",
         },
       });
     }
@@ -1520,6 +1993,35 @@ ${instruction || "无"}`;
 
 请生成本章细纲，包含本章目标、出场人物、场景、冲突点、爽点、信息增量、伏笔和结尾钩子。`;
   }
+  if (taskType === "precheck_chapter") {
+    return `${base}
+
+当前章节：第 ${chapter?.chapterNumber} 章《${chapter?.title}》
+章节细纲：
+${chapter?.outline || ""}
+
+请在生成正文前做质量检查，重点检查：
+1. 当前章节是否有关联卷纲，细纲是否为空或明显偏离卷纲。
+2. 上一章摘要是否足够承接。
+3. 关键人物是否有当前状态，是否可能出现状态断裂。
+4. 是否存在当前章节附近应推进或回收的重要伏笔。
+5. 细纲、标题和补充要求是否命中禁用词或禁用烂梗。
+
+只输出严格 JSON，不要 Markdown，不要解释，格式如下：
+{
+  "canGenerate": true,
+  "riskLevel": "low",
+  "issues": [
+    {
+      "type": "missing_previous_summary",
+      "severity": "medium",
+      "message": "上一章缺少摘要，可能影响承接。",
+      "suggestion": "先重新生成上一章摘要。"
+    }
+  ],
+  "suggestedPromptAdditions": "本章必须承接上一章主角受伤状态。"
+}`;
+  }
   if (taskType === "review_chapter") {
     return `${base}
 
@@ -1528,7 +2030,24 @@ ${chapter?.outline || ""}
 章节正文：
 ${chapter?.content || ""}
 
-请审稿，按问题严重程度列出：是否偏离细纲、人物是否 OOC、设定是否冲突、节奏是否拖沓、爽点和结尾钩子是否足够，并给出可执行修改建议和 100 分评分。`;
+请审稿，维度包括剧情承接、细纲完成度、人物状态一致性、世界观一致性、伏笔埋设/回收、节奏爽点、禁用词/烂梗、AI 味表达、错别字和病句。
+
+只输出严格 JSON，不要 Markdown，不要解释，格式如下：
+{
+  "overallScore": 82,
+  "summary": "本章承接基本成立，但反派动机略突兀。",
+  "issues": [
+    {
+      "type": "character",
+      "severity": "high",
+      "title": "主角伤势恢复过快",
+      "evidence": "原文句子...",
+      "explanation": "上一章主角左臂重伤，本章直接高强度战斗。",
+      "suggestion": "增加临时压制伤势的代价，或降低战斗强度。"
+    }
+  ],
+  "mustFixBeforeFinalize": true
+}`;
   }
   return `${base}
 
@@ -1537,6 +2056,44 @@ ${chapter?.content || ""}
 ${chapter?.outline || ""}
 
 请根据细纲生成本章正文草稿。使用中文网文语感，推进具体剧情，强化行动、冲突和对话，结尾留钩子，字数尽量接近目标字数 ${novel.targetWordsPerChapter || 2500}。`;
+}
+
+function buildRevisionPrompt(
+  novel: PromptNovel,
+  chapter: NonNullable<PromptChapter>,
+  review: {
+    overallScore: number | null;
+    summary: string | null;
+    rawOutput: string | null;
+    issues: { type: string; severity: string; title: string; evidence: string | null; explanation: string; suggestion: string | null }[];
+  },
+  instruction: string,
+) {
+  const issueText = review.issues.map((issue, index) => [
+    `${index + 1}. [${issue.severity}/${issue.type}] ${issue.title}`,
+    issue.evidence ? `证据：${issue.evidence}` : "",
+    `说明：${issue.explanation}`,
+    issue.suggestion ? `建议：${issue.suggestion}` : "",
+  ].filter(Boolean).join("\n")).join("\n\n");
+
+  return `${buildPrompt("chapter_content", novel, chapter, [
+    "这是根据结构化审稿生成修订版的任务。",
+    "必须保留原章节的主要剧情事实、章节位置和关键设定，不要改成新章节。",
+    "优先修复 blocking/high/medium 问题；低风险问题在不破坏节奏的前提下顺手优化。",
+    "只输出修订后的完整正文，不要输出说明、标题、Markdown 或修改清单。",
+    instruction ? `用户补充修订要求：${instruction}` : "",
+  ].filter(Boolean).join("\n"))}
+
+原正文：
+${chapter.content || ""}
+
+结构化审稿摘要：
+评分：${review.overallScore ?? "未给出"}
+${review.summary || ""}
+
+审稿问题：
+${issueText || review.rawOutput || "无结构化问题，但仍需润色正文。"}
+`;
 }
 
 function buildVolumeOutlinesPrompt(novel: PromptNovel, instruction: string) {

@@ -5,7 +5,12 @@ import { requireOwnedNovel } from "@/lib/access";
 export default async function WorldPage({ params }: { params: Promise<{ novelId: string }> }) {
   const { novelId } = await params;
   const novel = await requireOwnedNovel(novelId, {
-    include: { worldSettings: { orderBy: [{ importance: "desc" }, { updatedAt: "desc" }] } },
+    include: {
+      worldSettings: {
+        orderBy: [{ importance: "desc" }, { updatedAt: "desc" }],
+        include: { revisions: { orderBy: { createdAt: "desc" }, take: 5 } },
+      },
+    },
   });
   return (
     <AppShell title={`${novel.title} / 世界观`} novelId={novel.id}>
@@ -27,6 +32,19 @@ export default async function WorldPage({ params }: { params: Promise<{ novelId:
               <span className="chip">{setting.category} / {setting.importance}</span>
             </div>
             <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{setting.content}</p>
+            <details className="mt-3 text-sm">
+              <summary className="cursor-pointer font-bold">修订历史</summary>
+              <div className="mt-2 grid gap-2">
+                {setting.revisions.map((revision) => (
+                  <div key={revision.id} className="rounded-lg bg-[#f7f5ef] p-3">
+                    <div className="muted text-xs">{revision.chapterNumber ? `第 ${revision.chapterNumber} 章` : "未绑定章节"} / {revision.createdBy}</div>
+                    {revision.changeReason ? <p className="mt-1 font-bold">{revision.changeReason}</p> : null}
+                    <p className="mt-1 whitespace-pre-wrap leading-6">{revision.newContent.slice(0, 500)}</p>
+                  </div>
+                ))}
+                {setting.revisions.length === 0 ? <p className="muted">暂无历史。</p> : null}
+              </div>
+            </details>
           </article>
         ))}
       </div>

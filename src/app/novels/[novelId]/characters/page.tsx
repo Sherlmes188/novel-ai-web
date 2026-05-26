@@ -5,7 +5,12 @@ import { requireOwnedNovel } from "@/lib/access";
 export default async function CharactersPage({ params }: { params: Promise<{ novelId: string }> }) {
   const { novelId } = await params;
   const novel = await requireOwnedNovel(novelId, {
-    include: { characters: { orderBy: { updatedAt: "desc" } } },
+    include: {
+      characters: {
+        orderBy: { updatedAt: "desc" },
+        include: { stateHistory: { orderBy: { createdAt: "desc" }, take: 5 } },
+      },
+    },
   });
   return (
     <AppShell title={`${novel.title} / 人物`} novelId={novel.id}>
@@ -34,6 +39,20 @@ export default async function CharactersPage({ params }: { params: Promise<{ nov
             <p className="mt-3 text-sm leading-6">{character.personality || "暂无性格记录。"}</p>
             <p className="mt-3 text-sm leading-6"><b>状态：</b>{character.currentStatus || "暂无"}</p>
             {character.notes ? <p className="mt-3 text-sm leading-6"><b>备注：</b>{character.notes}</p> : null}
+            <details className="mt-3 text-sm">
+              <summary className="cursor-pointer font-bold">状态时间线</summary>
+              <div className="mt-2 grid gap-2">
+                {character.stateHistory.map((item) => (
+                  <div key={item.id} className="rounded-lg bg-[#f7f5ef] p-3">
+                    <div className="muted text-xs">{item.chapterNumber ? `第 ${item.chapterNumber} 章` : "未绑定章节"} / {item.source}</div>
+                    <p className="mt-1 leading-6">{item.eventSummary || "无摘要"}</p>
+                    {item.powerLevel ? <p className="muted mt-1">能力：{item.powerLevel}</p> : null}
+                    {item.items ? <p className="muted mt-1">物品：{item.items}</p> : null}
+                  </div>
+                ))}
+                {character.stateHistory.length === 0 ? <p className="muted">暂无历史。</p> : null}
+              </div>
+            </details>
           </article>
         ))}
       </div>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Ban, BookOpen, FileText, LogOut, NotebookPen, Send, Settings, Sparkles, Users } from "lucide-react";
+import { Ban, BookOpen, Brain, FileText, LogOut, NotebookPen, Send, Settings, Sparkles, Users } from "lucide-react";
 import { logoutAction } from "@/lib/actions";
 import { requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -16,7 +16,9 @@ const novelNav = [
   { segment: "characters", label: "人物", icon: Users },
   { segment: "world", label: "世界观", icon: Settings },
   { segment: "banned", label: "禁用库", icon: Ban },
+  { segment: "memory", label: "记忆", icon: Brain },
   { segment: "ai-tasks", label: "AI 任务", icon: Sparkles },
+  { segment: "ai-models", label: "模型", icon: Settings },
   { segment: "publications", label: "发布", icon: Send },
   { segment: "export", label: "导出", icon: FileText },
 ];
