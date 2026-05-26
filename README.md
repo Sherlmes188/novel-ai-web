@@ -6,6 +6,22 @@
 
 项目基于 Next.js App Router、React、Prisma、PostgreSQL 和 DeepSeek Chat Completions 构建。它适合部署在自己的服务器上，作为个人或小团队使用的 AI 小说创作后台。
 
+## 界面截图
+
+> 截图中的部分小说内容和敏感信息已打码处理。
+
+### 小说项目列表
+
+![小说项目列表](./docs/images/novel-list.png)
+
+### 章节管理
+
+![章节管理](./docs/images/chapters.png)
+
+### 章节编辑与 AI 操作
+
+![章节编辑与 AI 操作](./docs/images/chapter-editor.png)
+
 ## 功能特性
 
 ### 小说项目管理

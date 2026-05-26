@@ -6,6 +6,22 @@
 
 The project is built with Next.js App Router, React, Prisma, PostgreSQL, and DeepSeek Chat Completions. It is intended to be self-hosted as a private writing dashboard for individual authors or small teams.
 
+## Screenshots
+
+> Some novel content and sensitive information in the screenshots has been masked.
+
+### Novel Project List
+
+![Novel project list](./docs/images/novel-list.png)
+
+### Chapter Management
+
+![Chapter management](./docs/images/chapters.png)
+
+### Chapter Editor and AI Actions
+
+![Chapter editor and AI actions](./docs/images/chapter-editor.png)
+
 ## Features
 
 ### Novel Project Management
@@ -582,4 +598,3 @@ Without an explicit `LICENSE` file, the project should not be assumed to allow f
 This project is intended for personal writing assistance and workflow automation research. When using AI-generated content, you are responsible for reviewing quality, copyright risks, platform rules, and publication compliance.
 
 The Fanqie publishing script is only a helper for personal workflows. Please verify the relevant platform rules before using automation, and use it at your own risk.
-
