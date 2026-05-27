@@ -62,10 +62,11 @@ export async function AppShell({
     : nav;
 
   return (
-    <div className="min-h-screen">
-      <aside className="fixed inset-y-0 left-0 hidden w-60 border-r border-[#ded8ca] bg-[#fffdf8] p-4 lg:block">
-        <Link href="/novels" className="mb-6 block text-lg font-black">
-          AI 小说创作后台
+    <div className="min-h-screen text-[#17201c]">
+      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white/95 p-4 shadow-[4px_0_24px_rgba(15,23,42,0.04)] backdrop-blur lg:block">
+        <Link href="/novels" className="mb-6 flex items-center gap-2 rounded-lg px-2 py-1 text-lg font-black">
+          <span className="grid size-8 place-items-center rounded-lg bg-[#1f7a72] text-sm text-white">AI</span>
+          <span>小说创作后台</span>
         </Link>
         {novelId ? (
           <div className="mb-4 grid gap-2">
@@ -83,12 +84,12 @@ export async function AppShell({
             </form>
           </div>
         ) : null}
-        <nav className="grid gap-2">
+        <nav className="grid gap-1.5">
           {links.map((item) => {
             const Icon = item.icon;
             return (
-              <Link key={item.href} href={item.href} className="flex items-center gap-2 rounded-lg px-3 py-2 font-semibold text-[#3d433d] hover:bg-[#f1eadb]">
-                <Icon size={18} />
+              <Link key={item.href} href={item.href} className="flex items-center gap-2 rounded-lg px-3 py-2.5 font-semibold text-slate-700 transition hover:bg-[#e7f4f2] hover:text-[#17655f]">
+                <Icon size={18} strokeWidth={2.2} />
                 {item.label}
               </Link>
             );
@@ -101,10 +102,10 @@ export async function AppShell({
           </button>
         </form>
       </aside>
-      <main className="lg:pl-60">
-        <header className="sticky top-0 z-10 border-b border-[#ded8ca] bg-[#f7f5ef]/95 px-4 py-3 backdrop-blur lg:px-8">
+      <main className="lg:pl-64">
+        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/88 px-4 py-3 shadow-[0_1px_10px_rgba(15,23,42,0.04)] backdrop-blur lg:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-xl font-black">{title}</h1>
+            <h1 className="text-xl font-black tracking-normal text-slate-900">{title}</h1>
             <div className="flex flex-wrap gap-2 lg:hidden">
               {novelId ? <Link href="/novels" className="chip">小说列表</Link> : null}
               {links.map((item) => (
@@ -115,7 +116,7 @@ export async function AppShell({
             </div>
           </div>
         </header>
-        <div className="px-4 py-6 lg:px-8">{children}</div>
+        <div className="mx-auto w-full max-w-[1560px] px-4 py-6 lg:px-8">{children}</div>
       </main>
     </div>
   );
@@ -124,8 +125,8 @@ export async function AppShell({
 export function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="panel p-4">
-      <div className="muted text-sm font-semibold">{label}</div>
-      <div className="mt-2 text-2xl font-black">{value}</div>
+      <div className="muted text-sm font-bold">{label}</div>
+      <div className="mt-2 text-2xl font-black text-slate-900">{value}</div>
     </div>
   );
 }

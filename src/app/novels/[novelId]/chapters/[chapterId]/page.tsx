@@ -101,7 +101,7 @@ export default async function ChapterPage({ params }: { params: Promise<{ novelI
           <label className="field"><span className="label">章节细纲</span><textarea className="textarea" name="outline" defaultValue={chapter.outline || ""} /></label>
           <label className="field"><span className="label">正文</span><textarea className="textarea min-h-[560px]" name="content" defaultValue={chapter.content || ""} /></label>
           <label className="field"><span className="label">章节摘要</span><textarea className="textarea" name="summary" defaultValue={chapter.summary || ""} /></label>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-2">
             <button className="btn" type="submit">保存章节</button>
           </div>
         </form>
@@ -110,10 +110,10 @@ export default async function ChapterPage({ params }: { params: Promise<{ novelI
           <section className="panel p-5">
             <h2 className="font-black">编辑诊断</h2>
             <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-              <div className="rounded-lg bg-[#f7f5ef] p-3"><b>{contentWordCount}</b><br /><span className="muted">字数</span></div>
-              <div className="rounded-lg bg-[#f7f5ef] p-3"><b>{paragraphs.length}</b><br /><span className="muted">段落</span></div>
-              <div className="rounded-lg bg-[#f7f5ef] p-3"><b>{dialogueCount}</b><br /><span className="muted">对话引号</span></div>
-              <div className="rounded-lg bg-[#f7f5ef] p-3"><b>{bannedHits.length}</b><br /><span className="muted">禁用命中</span></div>
+              <div className="rounded-lg bg-slate-50 p-3"><b className="text-lg text-slate-900">{contentWordCount}</b><br /><span className="muted">字数</span></div>
+              <div className="rounded-lg bg-slate-50 p-3"><b className="text-lg text-slate-900">{paragraphs.length}</b><br /><span className="muted">段落</span></div>
+              <div className="rounded-lg bg-slate-50 p-3"><b className="text-lg text-slate-900">{dialogueCount}</b><br /><span className="muted">对话引号</span></div>
+              <div className="rounded-lg bg-slate-50 p-3"><b className="text-lg text-slate-900">{bannedHits.length}</b><br /><span className="muted">禁用命中</span></div>
             </div>
             <div className="mt-3 grid gap-2 text-sm">
               {validation.blockingIssues.map((issue) => <p key={issue} className="rounded-lg bg-red-50 p-2 text-red-700">{issue}</p>)}
@@ -155,7 +155,7 @@ export default async function ChapterPage({ params }: { params: Promise<{ novelI
             <h2 className="font-black">结构化审稿报告</h2>
             <div className="mt-3 grid gap-3">
               {chapter.reviews.map((review) => (
-                <details key={review.id} className="rounded-lg border border-[#ded8ca] p-3" open={review.reviewNo === chapter.reviews[0]?.reviewNo}>
+                <details key={review.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm" open={review.reviewNo === chapter.reviews[0]?.reviewNo}>
                   <summary className="cursor-pointer font-bold">
                     审稿 #{review.reviewNo}
                     <span className="chip ml-2">{review.status}</span>
@@ -164,11 +164,11 @@ export default async function ChapterPage({ params }: { params: Promise<{ novelI
                   {review.summary ? <p className="muted mt-3 text-sm leading-6">{review.summary}</p> : null}
                   <div className="mt-3 grid gap-2 text-sm">
                     {review.issues.map((issue) => (
-                      <div key={issue.id} className="rounded-lg bg-[#f7f5ef] p-3">
+                      <div key={issue.id} className="rounded-lg bg-slate-50 p-3">
                         <div className="font-bold">[{issue.severity}/{issue.type}] {issue.title}</div>
                         {issue.evidence ? <p className="mt-2">证据：{issue.evidence}</p> : null}
                         <p className="mt-2">{issue.explanation}</p>
-                        {issue.suggestion ? <p className="mt-2 text-[#28726a]">建议：{issue.suggestion}</p> : null}
+                        {issue.suggestion ? <p className="mt-2 text-[#1f7a72]">建议：{issue.suggestion}</p> : null}
                       </div>
                     ))}
                     {review.issues.length === 0 ? <p className="muted">暂无结构化问题。</p> : null}
@@ -190,7 +190,7 @@ export default async function ChapterPage({ params }: { params: Promise<{ novelI
             <h2 className="font-black">修订版</h2>
             <div className="mt-3 grid gap-3 text-sm">
               {chapter.revisions.map((revision) => (
-                <details key={revision.id} className="rounded-lg border border-[#ded8ca] p-3">
+                <details key={revision.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
                   <summary className="cursor-pointer font-bold">
                     修订版 #{revision.revisionNo}
                     <span className="chip ml-2">{revision.status}</span>
@@ -198,7 +198,7 @@ export default async function ChapterPage({ params }: { params: Promise<{ novelI
                   </summary>
                   {revision.instruction ? <p className="muted mt-3 leading-6">要求：{revision.instruction}</p> : null}
                   {revision.sourceReview ? <p className="muted mt-2">来源：审稿 #{revision.sourceReview.reviewNo}</p> : null}
-                  <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap text-xs leading-5">{revision.content}</pre>
+                  <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap p-3 text-xs leading-5">{revision.content}</pre>
                   {revision.status === "DRAFT" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       <form action={applyChapterRevisionAction}>
@@ -256,9 +256,9 @@ export default async function ChapterPage({ params }: { params: Promise<{ novelI
             <h2 className="font-black">版本历史</h2>
             <div className="mt-3 grid gap-2 text-sm">
               {versions.map((version) => (
-                <details key={version.id} className="rounded-lg border border-[#ded8ca] p-3">
+                <details key={version.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
                   <summary className="cursor-pointer font-bold">v{version.versionNumber} {version.changeSummary}</summary>
-                  <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs leading-5">{version.content}</pre>
+                  <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap p-3 text-xs leading-5">{version.content}</pre>
                 </details>
               ))}
               {versions.length === 0 ? <p className="muted">暂无历史。</p> : null}

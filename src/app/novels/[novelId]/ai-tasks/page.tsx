@@ -37,11 +37,11 @@ export default async function AiTasksPage({ params }: { params: Promise<{ novelI
                 </form>
               ) : null}
             </div>
-            {task.errorMessage ? <pre className="mt-4 whitespace-pre-wrap rounded-lg bg-red-50 p-3 text-sm text-red-700">{task.errorMessage}</pre> : null}
-            {task.outputContent ? <pre className="mt-4 whitespace-pre-wrap text-sm leading-6">{task.outputContent}</pre> : null}
+            {task.errorMessage ? <pre className="mt-4 whitespace-pre-wrap rounded-lg border-red-200 bg-red-50 p-3 text-sm text-red-700">{task.errorMessage}</pre> : null}
+            {task.outputContent ? <pre className="mt-4 whitespace-pre-wrap p-3 text-sm leading-6">{task.outputContent}</pre> : null}
             <details className="mt-4">
               <summary className="cursor-pointer text-sm font-bold">查看 Prompt</summary>
-              <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5">{task.prompt}</pre>
+              <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap p-3 text-xs leading-5">{task.prompt}</pre>
             </details>
           </details>
         ))}

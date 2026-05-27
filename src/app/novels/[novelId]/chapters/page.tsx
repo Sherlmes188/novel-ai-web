@@ -103,7 +103,7 @@ export default async function ChaptersPage({
       </form>
 
       <div className="panel overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ded8ca] px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-3">
           <div className="text-sm font-semibold">
             共 {totalChapters} 章，每页 {pageSize} 章，当前第 {safePage} / {totalPages} 页
           </div>
@@ -112,14 +112,14 @@ export default async function ChaptersPage({
             <Link className="btn secondary" href={`/novels/${novel.id}/chapters?page=${Math.min(safePage + 1, totalPages)}`}>下一页</Link>
           </div>
         </div>
-        <div className="grid grid-cols-[80px_1fr_120px_120px_90px_170px] gap-3 border-b border-[#ded8ca] px-4 py-3 text-sm font-black max-md:hidden">
+        <div className="grid grid-cols-[80px_1fr_120px_120px_90px_170px] gap-3 border-b border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 max-md:hidden">
           <span>章号</span><span>标题</span><span>细纲</span><span>正文</span><span>字数</span><span>发布</span>
         </div>
         {novel.chapters.map((chapter) => {
           const job = chapter.publicationJobs[0];
           const publishTime = job?.publishedAt || job?.scheduledAt;
           return (
-            <Link key={chapter.id} href={`/novels/${novel.id}/chapters/${chapter.id}`} className="grid gap-2 border-b border-[#eee7d8] px-4 py-3 hover:bg-[#f8f3e7] md:grid-cols-[80px_1fr_120px_120px_90px_170px]">
+            <Link key={chapter.id} href={`/novels/${novel.id}/chapters/${chapter.id}`} className="grid gap-2 border-b border-slate-100 px-4 py-3 transition hover:bg-[#f8fbfd] md:grid-cols-[80px_1fr_120px_120px_90px_170px]">
               <span className="font-black">第 {chapter.chapterNumber} 章</span>
               <span>
                 {chapter.title}

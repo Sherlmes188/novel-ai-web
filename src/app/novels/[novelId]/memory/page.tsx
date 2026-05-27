@@ -38,7 +38,7 @@ export default async function MemoryPage({
         </div>
 
         <section className="panel p-5">
-          <h2 className="font-black">索引操作</h2>
+          <h2 className="font-black text-slate-900">索引操作</h2>
           <div className="mt-3 grid gap-3 lg:grid-cols-2">
             <form action={rebuildNovelMemoryAction} className="grid gap-2">
               <input type="hidden" name="novelId" value={novel.id} />
@@ -57,7 +57,7 @@ export default async function MemoryPage({
         </section>
 
         <section className="panel p-5">
-          <h2 className="font-black">检索测试</h2>
+          <h2 className="font-black text-slate-900">检索测试</h2>
           <form className="mt-3 grid gap-3 md:grid-cols-[1fr_180px_auto]">
             <input className="input" name="q" defaultValue={q} placeholder="输入章节标题、设定、人物状态或伏笔关键词" />
             <select className="select" name="type" defaultValue={type}>
@@ -68,7 +68,7 @@ export default async function MemoryPage({
           </form>
           <div className="mt-4 grid gap-3">
             {(q ? results : recentChunks).map((chunk) => (
-              <article key={chunk.id} className="rounded-lg border border-[#ded8ca] p-3">
+              <article key={chunk.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
                 <div className="flex flex-wrap gap-2 text-sm">
                   <span className="chip">{chunk.sourceType}</span>
                   {chunk.chapterNumber ? <span className="chip">第 {chunk.chapterNumber} 章</span> : null}
@@ -82,7 +82,7 @@ export default async function MemoryPage({
         </section>
 
         <section className="panel p-5">
-          <h2 className="font-black">来源统计</h2>
+          <h2 className="font-black text-slate-900">来源统计</h2>
           <div className="mt-3 flex flex-wrap gap-2">
             {byType.map((item) => <span className="chip" key={item.sourceType}>{item.sourceType}: {item._count._all}</span>)}
           </div>
